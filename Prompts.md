@@ -75,4 +75,24 @@ can you remove the quick stops, and add the bus stop number as well as name on t
 publish to github
 ```
 
+---
+
+## Prompt 8: Clarification on Bus Stops Search & BusArrival Endpoint
+
+```text
+the bus stop/location search is not showing all available busstops in singapore.
+
+is it due to the end point defaulting to 04121? should we change it to this without the filter? 
+
+https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival
+```
+
+---
+
+## Prompt 9: Add LTA BusStops Serverless Endpoint
+
+```text
+yes please
+```
+
 

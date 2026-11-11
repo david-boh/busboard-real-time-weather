@@ -87,6 +87,10 @@ export default function App() {
   const [copiedFeed, setCopiedFeed] = useState<boolean>(false);
   const [demoMode, setDemoMode] = useState<boolean>(false);
 
+  const [remoteRecommendations, setRemoteRecommendations] = useState<Array<{ code: string; name: string; road: string; description?: string }>>([]);
+  const [isSearchingStops, setIsSearchingStops] = useState<boolean>(false);
+  const [selectedStopDetails, setSelectedStopDetails] = useState<{ code: string; name: string; road: string; description?: string } | null>(null);
+
   // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -98,10 +102,53 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filter recommendations for autocomplete
-  const recommendations = useMemo(() => {
-    return searchBusStops(searchInput, 7);
+  // Fetch live bus stops recommendations from /api/stops
+  useEffect(() => {
+    let isMounted = true;
+    const timeoutId = setTimeout(async () => {
+      setIsSearchingStops(true);
+      try {
+        const res = await fetch(`/api/stops?q=${encodeURIComponent(searchInput)}&limit=10`);
+        if (res.ok) {
+          const json = await res.json();
+          if (isMounted && Array.isArray(json.stops) && json.stops.length > 0) {
+            setRemoteRecommendations(json.stops);
+          }
+        }
+      } catch {
+        // Fallback to local
+      } finally {
+        if (isMounted) setIsSearchingStops(false);
+      }
+    }, 180);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
   }, [searchInput]);
+
+  // Autocomplete suggestions list (combining remote results and local fallback)
+  const recommendations = useMemo(() => {
+    if (remoteRecommendations.length > 0) {
+      return remoteRecommendations;
+    }
+    return searchBusStops(searchInput, 8);
+  }, [remoteRecommendations, searchInput]);
+
+  // Fetch stop metadata if custom code selected
+  useEffect(() => {
+    let isMounted = true;
+    fetch(`/api/stops?code=${encodeURIComponent(currentStopCode)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (isMounted && data && data.name) {
+          setSelectedStopDetails(data);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [currentStopCode]);
 
   // Fallback demo data for 04121 (SMU - Stamford Rd) or other stops
   const demoBusData: BusData = useMemo(() => {
@@ -228,10 +275,18 @@ export default function App() {
   const advice = activeBusData ? getAdvice(activeBusData.nextBus?.minutes) : 'Wait';
   const isLeaveNow = advice === 'Leave now';
 
-  const stopInfo = useMemo(() => getBusStopInfo(currentStopCode), [currentStopCode]);
+  const stopInfo = useMemo(() => {
+    if (selectedStopDetails && selectedStopDetails.code === currentStopCode) {
+      return selectedStopDetails;
+    }
+    return getBusStopInfo(currentStopCode);
+  }, [selectedStopDetails, currentStopCode]);
 
-  const selectStop = (code: string) => {
+  const selectStop = (code: string, details?: { code: string; name: string; road: string; description?: string }) => {
     const formatted = String(code).trim().padStart(5, '0');
+    if (details) {
+      setSelectedStopDetails(details);
+    }
     setCurrentStopCode(formatted);
     setSearchInput('');
     setIsSearchOpen(false);
@@ -361,7 +416,7 @@ export default function App() {
             <div className="absolute left-0 right-0 mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden divide-y divide-slate-800/60 max-h-80 overflow-y-auto">
               <div className="px-4 py-2 bg-slate-950/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
                 <span>{searchInput ? 'Suggested Matching Stops' : 'Popular & Recommended Stops'}</span>
-                <span>Select to View</span>
+                <span>{isSearchingStops ? 'Searching...' : 'Select to View'}</span>
               </div>
 
               {recommendations.length > 0 ? (
@@ -371,7 +426,7 @@ export default function App() {
                     <button
                       key={stop.code}
                       type="button"
-                      onClick={() => selectStop(stop.code)}
+                      onClick={() => selectStop(stop.code, stop)}
                       className={`w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-800/60 transition-colors ${
                         isSelected ? 'bg-sky-500/10' : ''
                       }`}
