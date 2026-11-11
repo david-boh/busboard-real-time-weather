@@ -1,0 +1,6 @@
+{
+  "name": "SG Bus 04121 & Weather RSS",
+  "description": "Live Singapore bus arrival advice for stop 04121 and NEA 2-hour weather forecast with Zapier RSS feed integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
