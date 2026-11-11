@@ -95,4 +95,13 @@ https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival
 yes please
 ```
 
+---
+
+## Prompt 10: Remove Verified Banner & Add Subsequent Stops Dropdown
+
+```text
+can you remove the location verified for 04121 from the UI. For the buses, can you adjust it to show a dropdown of the subsqeurnt stops?
+```
+
+
 

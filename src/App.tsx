@@ -13,6 +13,7 @@ import {
   formatLoad, 
   formatType 
 } from '../shared/busStops.js';
+import { getSubsequentStops } from '../shared/busRoutes.js';
 import { 
   Bus, 
   CloudSun, 
@@ -28,7 +29,10 @@ import {
   Layers,
   Info,
   Check,
-  X
+  X,
+  ChevronDown,
+  ChevronUp,
+  Navigation
 } from 'lucide-react';
 
 interface BusService {
@@ -90,6 +94,7 @@ export default function App() {
   const [remoteRecommendations, setRemoteRecommendations] = useState<Array<{ code: string; name: string; road: string; description?: string }>>([]);
   const [isSearchingStops, setIsSearchingStops] = useState<boolean>(false);
   const [selectedStopDetails, setSelectedStopDetails] = useState<{ code: string; name: string; road: string; description?: string } | null>(null);
+  const [expandedService, setExpandedService] = useState<string | null>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -368,17 +373,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Verified Location Notice for 04121 */}
-        {currentStopCode === '04121' && (
-          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-sky-950/40 border border-sky-800/50 text-xs text-sky-200">
-            <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold text-white">Location Verified: </span>
-              Bus Stop <code className="bg-sky-900/50 px-1 py-0.5 rounded text-sky-300 font-mono">04121</code> is officially <strong>SMU (Singapore Management University)</strong> along <strong>Stamford Road</strong> (near Dhoby Ghaut / Bras Basah), not Old Hill Street. Passing buses include <strong>7, 14, 16, 36, 77, 106, 147, 166, 174, 190</strong>.
-            </div>
-          </div>
-        )}
-
         {/* Bus Stop Search Box with Autocomplete & Recommendations */}
         <div ref={searchContainerRef} className="relative z-30">
           <form onSubmit={handleSearchSubmit} className="relative flex items-center">
@@ -632,71 +626,129 @@ export default function App() {
 
           <div className="divide-y divide-slate-800/60">
             {activeBusData?.services && activeBusData.services.length > 0 ? (
-              activeBusData.services.map((svc) => (
-                <div
-                  key={svc.serviceNo}
-                  className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-14 text-center py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 font-bold text-sky-300 text-base">
-                      {svc.serviceNo}
-                    </span>
-                    <div>
-                      {svc.operator && (
-                        <span className="text-xs text-slate-400 block">{svc.operator}</span>
-                      )}
-                      <span className="text-[11px] text-slate-500 block">
-                        {svc.feature1 === 'WAB' ? 'Wheelchair Accessible' : ''}
-                      </span>
-                    </div>
-                  </div>
+              activeBusData.services.map((svc) => {
+                const isExpanded = expandedService === svc.serviceNo;
+                const subsequentStops = getSubsequentStops(svc.serviceNo, currentStopCode);
 
-                  {/* Arrival Cards for Next 1 and Next 2 */}
-                  <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-                    {/* Next 1 */}
-                    <div className="flex flex-col items-start p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 min-w-[120px]">
-                      <div className="flex items-center justify-between w-full gap-2">
-                        <span className="text-[11px] text-slate-400 font-medium">Next:</span>
-                        <span className={svc.next1 !== null && svc.next1 <= 5 ? 'text-emerald-400 font-bold text-sm' : 'text-white font-semibold text-sm'}>
-                          {svc.next1 !== null ? `${svc.next1} min` : '—'}
+                return (
+                  <div key={svc.serviceNo} className="divide-y divide-slate-800/40">
+                    <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="w-14 text-center py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 font-bold text-sky-300 text-base shrink-0">
+                          {svc.serviceNo}
                         </span>
-                      </div>
-                      {svc.next1 !== null && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                            {formatType(svc.type1).short}
-                          </span>
-                          <span className={`text-[10px] px-1 py-0.5 rounded border ${formatLoad(svc.load1).badgeClass}`}>
-                            {formatLoad(svc.load1).label}
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {svc.operator && (
+                              <span className="text-xs text-slate-400 font-medium">{svc.operator}</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setExpandedService(isExpanded ? null : svc.serviceNo)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[11px] text-sky-400 font-medium transition-colors border border-slate-700/60"
+                              title="Toggle subsequent stops along the route"
+                            >
+                              <span>Subsequent Stops</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
+                          <span className="text-[11px] text-slate-500 block mt-0.5">
+                            {svc.feature1 === 'WAB' ? 'Wheelchair Accessible' : ''}
                           </span>
                         </div>
-                      )}
-                    </div>
-
-                    <ArrowRight className="w-3.5 h-3.5 text-slate-600 hidden sm:block shrink-0" />
-
-                    {/* Next 2 */}
-                    <div className="flex flex-col items-start p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 min-w-[120px]">
-                      <div className="flex items-center justify-between w-full gap-2">
-                        <span className="text-[11px] text-slate-400 font-medium">Then:</span>
-                        <span className="text-slate-200 font-semibold text-sm">
-                          {svc.next2 !== null ? `${svc.next2} min` : '—'}
-                        </span>
                       </div>
-                      {svc.next2 !== null && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                            {formatType(svc.type2).short}
-                          </span>
-                          <span className={`text-[10px] px-1 py-0.5 rounded border ${formatLoad(svc.load2).badgeClass}`}>
-                            {formatLoad(svc.load2).label}
-                          </span>
+
+                      {/* Arrival Cards for Next 1 and Next 2 */}
+                      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+                        {/* Next 1 */}
+                        <div className="flex flex-col items-start p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 min-w-[120px]">
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <span className="text-[11px] text-slate-400 font-medium">Next:</span>
+                            <span className={svc.next1 !== null && svc.next1 <= 5 ? 'text-emerald-400 font-bold text-sm' : 'text-white font-semibold text-sm'}>
+                              {svc.next1 !== null ? `${svc.next1} min` : '—'}
+                            </span>
+                          </div>
+                          {svc.next1 !== null && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[10px] px-1 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                                {formatType(svc.type1).short}
+                              </span>
+                              <span className={`text-[10px] px-1 py-0.5 rounded border ${formatLoad(svc.load1).badgeClass}`}>
+                                {formatLoad(svc.load1).label}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
+
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-600 hidden sm:block shrink-0" />
+
+                        {/* Next 2 */}
+                        <div className="flex flex-col items-start p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 min-w-[120px]">
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <span className="text-[11px] text-slate-400 font-medium">Then:</span>
+                            <span className="text-slate-200 font-semibold text-sm">
+                              {svc.next2 !== null ? `${svc.next2} min` : '—'}
+                            </span>
+                          </div>
+                          {svc.next2 !== null && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[10px] px-1 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                                {formatType(svc.type2).short}
+                              </span>
+                              <span className={`text-[10px] px-1 py-0.5 rounded border ${formatLoad(svc.load2).badgeClass}`}>
+                                {formatLoad(svc.load2).label}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Subsequent Stops Dropdown */}
+                    {isExpanded && (
+                      <div className="px-5 py-3.5 bg-slate-950/90 border-t border-slate-800/70 space-y-2.5">
+                        <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                          <span className="font-semibold text-sky-300 flex items-center gap-1.5">
+                            <Navigation className="w-3.5 h-3.5" />
+                            <span>Subsequent stops for Bus {svc.serviceNo} after {stopInfo.name}:</span>
+                          </span>
+                          <span className="text-[11px] text-slate-400">Click any stop to switch arrival board</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          {subsequentStops.map((stop: { sequence: number; code: string; name: string; road: string }) => (
+                            <button
+                              key={stop.code}
+                              type="button"
+                              onClick={() => selectStop(stop.code, stop)}
+                              className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 hover:border-sky-500/40 border border-slate-800 text-left transition-all group"
+                            >
+                              <div className="flex items-center gap-2.5 overflow-hidden">
+                                <span className="w-6 h-6 rounded-full bg-sky-500/10 text-sky-300 text-[10px] font-bold flex items-center justify-center shrink-0 border border-sky-500/20">
+                                  +{stop.sequence}
+                                </span>
+                                <div className="truncate">
+                                  <p className="text-xs font-semibold text-white group-hover:text-sky-300 transition-colors truncate">
+                                    {stop.name}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400 truncate">
+                                    Stop {stop.code} • {stop.road}
+                                  </p>
+                                </div>
+                              </div>
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-sky-400 shrink-0 ml-2 transition-colors" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="px-5 py-8 text-center text-sm text-slate-400">
                 No bus services found for stop {currentStopCode}.
