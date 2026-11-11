@@ -67,3 +67,12 @@ For the bus arrival timing, can you add in availaiblity of seats for each bus? o
 can you remove the quick stops, and add the bus stop number as well as name on top left. for the search can it have auto complete or recommendation logic. keep everything else unchanged.
 ```
 
+---
+
+## Prompt 7: Publish to GitHub
+
+```text
+publish to github
+```
+
+
