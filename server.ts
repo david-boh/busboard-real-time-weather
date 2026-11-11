@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import feedHandler from './api/feed.js';
 import busHandler from './api/bus.js';
 import healthHandler from './api/health.js';
+import weatherHandler from './api/weather.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,7 @@ async function startServer() {
   // API endpoints
   app.get('/api/feed', feedHandler);
   app.get('/api/bus', busHandler);
+  app.get('/api/weather', weatherHandler);
   app.get('/api/health', healthHandler);
 
   const isProduction = process.env.NODE_ENV === 'production';

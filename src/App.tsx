@@ -83,17 +83,41 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    // 1. Fetch weather via shared module directly from browser
+    // 1. Fetch live 2-hour weather forecast via serverless connection /api/weather
     try {
-      const weatherRes = await fetchWeatherForecast('City');
-      if (weatherRes.success && weatherRes.data) {
-        setWeatherData(weatherRes.data as WeatherData);
+      const res = await fetch('/api/weather?area=City');
+      if (res.ok) {
+        const json = await res.json();
+        setWeatherData({
+          area: json.area,
+          forecast: json.forecast,
+          validPeriod: json.validPeriod,
+          updatedAt: json.updateTimestamp || new Date().toISOString()
+        });
         setWeatherError(null);
       } else {
-        setWeatherError(`Failed to fetch weather: ${weatherRes.error || 'Unknown error'}`);
+        // Fallback to direct client call if serverless proxy has an issue
+        const weatherRes = await fetchWeatherForecast('City');
+        if (weatherRes.success && weatherRes.data) {
+          setWeatherData(weatherRes.data as WeatherData);
+          setWeatherError(null);
+        } else {
+          setWeatherError(`Failed to fetch weather: ${weatherRes.error || 'Unknown error'}`);
+        }
       }
     } catch (err) {
-      setWeatherError(err instanceof Error ? err.message : 'Network error');
+      // Fallback
+      try {
+        const weatherRes = await fetchWeatherForecast('City');
+        if (weatherRes.success && weatherRes.data) {
+          setWeatherData(weatherRes.data as WeatherData);
+          setWeatherError(null);
+        } else {
+          setWeatherError(err instanceof Error ? err.message : 'Network error');
+        }
+      } catch (clientErr) {
+        setWeatherError(clientErr instanceof Error ? clientErr.message : 'Network error');
+      }
     }
 
     // 2. Fetch bus data from backend API
@@ -166,6 +190,15 @@ export default function App() {
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-400' : ''}`} />
               <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
             </button>
+            <a
+              href="/api/weather?area=City"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 text-xs font-medium text-sky-300 transition-colors"
+            >
+              <CloudSun className="w-3.5 h-3.5" />
+              <span>Weather API</span>
+            </a>
             <a
               href="/api/feed"
               target="_blank"
