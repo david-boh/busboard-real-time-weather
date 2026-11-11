@@ -1,5 +1,5 @@
 /**
- * LTA DataMall Bus Arrival service for Bus Stop 04121 (Old Hill St Police Stn)
+ * LTA DataMall Bus Arrival service for Bus Stop 04121 (SMU - Stamford Rd)
  */
 
 export function calculateMinutes(isoDate, now = Date.now()) {
@@ -40,8 +40,13 @@ export function simplifyBusArrivals(raw, now = Date.now()) {
       next3,
       load1: item.NextBus?.Load || '',
       type1: item.NextBus?.Type || '',
+      feature1: item.NextBus?.Feature || '',
       load2: item.NextBus2?.Load || '',
       type2: item.NextBus2?.Type || '',
+      feature2: item.NextBus2?.Feature || '',
+      load3: item.NextBus3?.Load || '',
+      type3: item.NextBus3?.Type || '',
+      feature3: item.NextBus3?.Feature || '',
     };
   });
 

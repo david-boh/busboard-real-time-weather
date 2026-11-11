@@ -131,8 +131,8 @@ export default async function feedHandler(req, res) {
   const itemGuid = `g1-leave-${timeInfo.roundedIso}`;
   const itemPubDate = timeInfo.pubDateRfc822;
 
-  const channelTitle = 'Bus Stop 04121 & Weather';
-  const channelDesc = 'Live bus departure advice for stop 04121 and NEA 2-hour weather forecast';
+  const channelTitle = 'Bus Stop 04121 (SMU) & Weather';
+  const channelDesc = 'Live bus departure advice for stop 04121 (SMU - Stamford Rd) and NEA 2-hour weather forecast';
 
   const rssXml = `<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0">
