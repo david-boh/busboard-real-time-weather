@@ -58,3 +58,12 @@ Collate all the prompts into filename Prompts.md
 ```text
 For the bus arrival timing, can you add in availaiblity of seats for each bus? or if its single deck etc. Can you add in a search box to allow user to key in other bus stops. Also can you verify the location for 04121, its not old hill street
 ```
+
+---
+
+## Prompt 6: Remove Quick Stops, Bus Stop Number & Name Top Left, Search Autocomplete
+
+```text
+can you remove the quick stops, and add the bus stop number as well as name on top left. for the search can it have auto complete or recommendation logic. keep everything else unchanged.
+```
+

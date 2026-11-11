@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { fetchWeatherForecast } from '../shared/weather.js';
 import { getAdvice } from '../api/bus.js';
 import { 
   KNOWN_BUS_STOPS, 
   getBusStopInfo, 
+  searchBusStops,
   formatLoad, 
   formatType 
 } from '../shared/busStops.js';
@@ -25,9 +26,9 @@ import {
   Search,
   Users,
   Layers,
-  Accessibility,
   Info,
-  Check
+  Check,
+  X
 } from 'lucide-react';
 
 interface BusService {
@@ -74,6 +75,9 @@ interface WeatherData {
 export default function App() {
   const [currentStopCode, setCurrentStopCode] = useState<string>('04121');
   const [searchInput, setSearchInput] = useState<string>('');
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
   const [busData, setBusData] = useState<BusData | null>(null);
   const [busError, setBusError] = useState<{ source: string; status: number; message: string } | null>(null);
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
@@ -83,7 +87,23 @@ export default function App() {
   const [copiedFeed, setCopiedFeed] = useState<boolean>(false);
   const [demoMode, setDemoMode] = useState<boolean>(false);
 
-  // Realistic fallback data for SMU (04121) on Stamford Road
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filter recommendations for autocomplete
+  const recommendations = useMemo(() => {
+    return searchBusStops(searchInput, 7);
+  }, [searchInput]);
+
+  // Fallback demo data for 04121 (SMU - Stamford Rd) or other stops
   const demoBusData: BusData = useMemo(() => {
     const isSMU = currentStopCode === '04121';
     if (isSMU) {
@@ -210,27 +230,22 @@ export default function App() {
 
   const stopInfo = useMemo(() => getBusStopInfo(currentStopCode), [currentStopCode]);
 
+  const selectStop = (code: string) => {
+    const formatted = String(code).trim().padStart(5, '0');
+    setCurrentStopCode(formatted);
+    setSearchInput('');
+    setIsSearchOpen(false);
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = searchInput.trim();
     if (!clean) return;
 
-    // Check if user entered digits or text
-    const matched = KNOWN_BUS_STOPS.find(
-      s => s.code === clean || s.name.toLowerCase().includes(clean.toLowerCase()) || s.road.toLowerCase().includes(clean.toLowerCase())
-    );
-
-    if (matched) {
-      setCurrentStopCode(matched.code);
-      setSearchInput('');
-    } else if (/^\d{5}$/.test(clean)) {
-      setCurrentStopCode(clean);
-      setSearchInput('');
+    if (recommendations.length > 0) {
+      selectStop(recommendations[0].code);
     } else {
-      // Try treating as stop code padded
-      const padded = clean.padStart(5, '0');
-      setCurrentStopCode(padded);
-      setSearchInput('');
+      selectStop(clean);
     }
   };
 
@@ -245,17 +260,25 @@ export default function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-8">
       <div className="w-full max-w-2xl space-y-6">
         
-        {/* Top Header */}
+        {/* Top Header - Bus Stop Number & Name on top left */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-          <div>
-            <div className="flex items-center gap-2 text-sky-400 text-sm font-semibold tracking-wider uppercase mb-1">
-              <MapPin className="w-4 h-4" />
-              <span>Singapore Bus Stop {currentStopCode}</span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sky-400 text-xs font-semibold tracking-wider uppercase">
+              <MapPin className="w-3.5 h-3.5" />
+              <span>Singapore Bus Arrival Board</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              <span>{stopInfo.name}</span>
-            </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
+            
+            {/* Bus Stop Number as well as Name prominently together */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 font-mono font-black text-xl sm:text-2xl border border-sky-500/40 tracking-wider shadow-sm">
+                {currentStopCode}
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                {stopInfo.name}
+              </h1>
+            </div>
+
+            <p className="text-xs text-slate-400">
               {stopInfo.road} {stopInfo.description ? `• ${stopInfo.description}` : ''}
             </p>
           </div>
@@ -301,52 +324,101 @@ export default function App() {
           </div>
         )}
 
-        {/* Bus Stop Search Box */}
-        <div className="space-y-2.5">
+        {/* Bus Stop Search Box with Autocomplete & Recommendations */}
+        <div ref={searchContainerRef} className="relative z-30">
           <form onSubmit={handleSearchSubmit} className="relative flex items-center">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
             <input
               type="text"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by 5-digit bus stop code or name (e.g. 04121, SMU, Dhoby Ghaut, Clarke Quay)..."
-              className="w-full pl-10 pr-24 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all"
+              onFocus={() => setIsSearchOpen(true)}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                setIsSearchOpen(true);
+              }}
+              placeholder="Search bus stop number or name (e.g. 04121, SMU, Dhoby Ghaut, Clarke Quay)..."
+              className="w-full pl-10 pr-24 py-3 rounded-xl bg-slate-900 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all shadow-lg"
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => setSearchInput('')}
+                className="absolute right-20 p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               type="submit"
               className="absolute right-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition-colors"
             >
-              Search
+              Select
             </button>
           </form>
 
-          {/* Quick Stop Suggestions */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
-            <span className="text-slate-400 text-[11px] whitespace-nowrap mr-1 font-medium">Quick Stops:</span>
-            {[
-              { code: '04121', label: '04121 (SMU - Default)' },
-              { code: '04223', label: '04223 (Old Hill St)' },
-              { code: '08057', label: '08057 (Dhoby Ghaut)' },
-              { code: '03019', label: '03019 (Clarke Quay)' },
-              { code: '04119', label: '04119 (Bugis)' },
-              { code: '09048', label: '09048 (Orchard)' }
-            ].map(item => (
-              <button
-                key={item.code}
-                onClick={() => {
-                  setCurrentStopCode(item.code);
-                  setSearchInput('');
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
-                  currentStopCode === item.code
-                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          {/* Autocomplete / Recommendations Dropdown */}
+          {isSearchOpen && (
+            <div className="absolute left-0 right-0 mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden divide-y divide-slate-800/60 max-h-80 overflow-y-auto">
+              <div className="px-4 py-2 bg-slate-950/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>{searchInput ? 'Suggested Matching Stops' : 'Popular & Recommended Stops'}</span>
+                <span>Select to View</span>
+              </div>
+
+              {recommendations.length > 0 ? (
+                recommendations.map((stop) => {
+                  const isSelected = currentStopCode === stop.code;
+                  return (
+                    <button
+                      key={stop.code}
+                      type="button"
+                      onClick={() => selectStop(stop.code)}
+                      className={`w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-800/60 transition-colors ${
+                        isSelected ? 'bg-sky-500/10' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-14 text-center py-1 rounded bg-slate-950 font-mono font-bold text-sky-400 text-xs border border-slate-800">
+                          {stop.code}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-white flex items-center gap-1.5">
+                            {stop.name}
+                            {stop.code === '04121' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-normal">
+                                Default Feed
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {stop.road} {stop.description ? `• ${stop.description}` : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      {isSelected && (
+                        <Check className="w-4 h-4 text-sky-400 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="p-4 text-center">
+                  <p className="text-xs text-slate-400">
+                    No predefined stops match &quot;{searchInput}&quot;.
+                  </p>
+                  {/^\d+$/.test(searchInput.trim()) && (
+                    <button
+                      type="button"
+                      onClick={() => selectStop(searchInput.trim())}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium transition-colors"
+                    >
+                      <span>Load Bus Stop {searchInput.trim().padStart(5, '0')}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Big Advice Banner */}
