@@ -3,7 +3,8 @@
  * Connects to LTA DataMall: https://datamall2.mytransport.sg/ltaodataservice/BusStops
  */
 
-import { KNOWN_BUS_STOPS } from '../shared/busStops.js';
+import { KNOWN_BUS_STOPS, findNearestBusStops } from '../shared/busStops.js';
+import { getLtaApiKey } from '../shared/env.js';
 
 // In-memory cache for LTA bus stops to avoid repeated external calls
 let cachedStops = null;
@@ -11,12 +12,7 @@ let cacheTimestamp = 0;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export async function fetchAllLtaBusStops() {
-  const apiKey =
-    process.env.LTA_API_KEY ||
-    process.env.DATAMALL_API_KEY ||
-    process.env.LTA_DATAMALL_KEY ||
-    process.env.LTA_KEY ||
-    process.env.ACCOUNT_KEY;
+  const apiKey = getLtaApiKey();
 
   if (!apiKey) {
     return {
@@ -64,6 +60,8 @@ export async function fetchAllLtaBusStops() {
           code: item.BusStopCode,
           name: item.Description,
           road: item.RoadName,
+          lat: item.Latitude,
+          lng: item.Longitude,
           latitude: item.Latitude,
           longitude: item.Longitude
         });
@@ -145,9 +143,27 @@ export default async function stopsHandler(req, res) {
   res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
 
   const query = req.query?.q || req.query?.search || '';
-  const limit = req.query?.limit || 10;
+  const limit = parseInt(req.query?.limit, 10) || 10;
   const code = req.query?.code;
+  const lat = req.query?.lat ? parseFloat(req.query.lat) : null;
+  const lng = req.query?.lng ? parseFloat(req.query.lng) : null;
 
+  // 1. Geolocation lookup: find nearest bus stops to user coordinates
+  if (lat !== null && lng !== null && !isNaN(lat) && !isNaN(lng)) {
+    const result = await fetchAllLtaBusStops();
+    const pool = result.stops && result.stops.length > 0 ? result.stops : KNOWN_BUS_STOPS;
+    const nearest = findNearestBusStops(lat, lng, limit, pool);
+
+    return res.status(200).json({
+      type: 'nearest',
+      userCoordinates: { lat, lng },
+      count: nearest.length,
+      nearestStop: nearest[0] || null,
+      stops: nearest
+    });
+  }
+
+  // 2. Specific stop code lookup
   if (code) {
     const formattedCode = String(code).trim().padStart(5, '0');
     const result = await fetchAllLtaBusStops();
@@ -164,6 +180,7 @@ export default async function stopsHandler(req, res) {
     });
   }
 
+  // 3. Search / Autocomplete lookup
   const results = await searchStops(query, limit);
 
   return res.status(200).json({

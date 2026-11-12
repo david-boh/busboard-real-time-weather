@@ -6,6 +6,7 @@ import busHandler from './api/bus.js';
 import healthHandler from './api/health.js';
 import weatherHandler from './api/weather.js';
 import stopsHandler from './api/stops.js';
+import routeHandler from './api/route.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,7 @@ async function startServer() {
   app.get('/api/feed', feedHandler);
   app.get('/api/bus', busHandler);
   app.get('/api/stops', stopsHandler);
+  app.get('/api/route', routeHandler);
   app.get('/api/weather', weatherHandler);
   app.get('/api/health', healthHandler);
 

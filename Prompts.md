@@ -105,3 +105,44 @@ can you remove the location verified for 04121 from the UI. For the buses, can y
 
 
 
+
+
+---
+
+## Prompt 11: Show All Subsequent Stops
+
+```text
+possible to show all subsequent stops? not just top 5-6
+```
+
+---
+
+## Prompt 12: API Connection Diagnostics
+
+```text
+the app is not pull any data. can you check if the api connection is still working?
+```
+
+---
+
+## Prompt 13: Vercel Environment Variables & Redeployment
+
+```text
+the environment variable is already provided in vercel?
+```
+
+---
+
+## Prompt 14: All Subsequent Stops Display & GPS Location Auto-Detection
+
+```text
+ok its working now. However the subsequent stops is still showing default next 5. instead of all subsequent stops. Also can you add a gps location tracker to auto detec nearest bus stop base on user's location?
+```
+
+---
+
+## Prompt 15: Push Updates to GitHub Repository
+
+```text
+git push https://<GITHUB_TOKEN>@github.com/david-boh/busboard-real-time-weather.git main
+```

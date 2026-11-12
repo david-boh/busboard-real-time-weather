@@ -1,6 +1,4 @@
-/**
- * LTA DataMall Bus Arrival service for Bus Stop 04121 (SMU - Stamford Rd)
- */
+import { getLtaApiKey } from '../shared/env.js';
 
 export function calculateMinutes(isoDate, now = Date.now()) {
   if (!isoDate) return null;
@@ -86,12 +84,7 @@ export function simplifyBusArrivals(raw, now = Date.now()) {
 
 export async function fetchBusArrivals(busStopCode = '04121') {
   // Read key via process.env. Never expose or log the key value or length.
-  const apiKey =
-    process.env.LTA_API_KEY ||
-    process.env.DATAMALL_API_KEY ||
-    process.env.LTA_DATAMALL_KEY ||
-    process.env.LTA_KEY ||
-    process.env.ACCOUNT_KEY;
+  const apiKey = getLtaApiKey();
 
   if (!apiKey) {
     return {

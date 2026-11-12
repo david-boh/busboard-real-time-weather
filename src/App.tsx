@@ -11,9 +11,12 @@ import {
   getBusStopInfo, 
   searchBusStops,
   formatLoad, 
-  formatType 
+  formatType,
+  findNearestBusStops,
+  formatDistance,
+  calculateDistanceMeters
 } from '../shared/busStops.js';
-import { getSubsequentStops } from '../shared/busRoutes.js';
+import { KNOWN_ROUTES, getSubsequentStops } from '../shared/busRoutes.js';
 import { 
   Bus, 
   CloudSun, 
@@ -32,8 +35,33 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  Navigation
+  Navigation,
+  Flag,
+  LocateFixed,
+  Compass,
+  Crosshair,
+  Sparkles
 } from 'lucide-react';
+
+interface SubsequentStop {
+  sequence: number;
+  code: string;
+  name: string;
+  road: string;
+  isTerminus?: boolean;
+  distance?: number;
+}
+
+interface NearbyStop {
+  code: string;
+  name: string;
+  road: string;
+  description?: string;
+  lat?: number;
+  lng?: number;
+  distanceMeters?: number;
+  distanceText?: string;
+}
 
 interface BusService {
   serviceNo: string;
@@ -95,6 +123,16 @@ export default function App() {
   const [isSearchingStops, setIsSearchingStops] = useState<boolean>(false);
   const [selectedStopDetails, setSelectedStopDetails] = useState<{ code: string; name: string; road: string; description?: string } | null>(null);
   const [expandedService, setExpandedService] = useState<string | null>(null);
+  const [stopFilter, setStopFilter] = useState<string>('');
+  const [routeCache, setRouteCache] = useState<Record<string, { destination: string; stops: SubsequentStop[] }>>({});
+  const [routeLoading, setRouteLoading] = useState<boolean>(false);
+
+  // GPS Location Tracker states
+  const [gpsLoading, setGpsLoading] = useState<boolean>(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [nearbyStops, setNearbyStops] = useState<NearbyStop[]>([]);
+  const [gpsToast, setGpsToast] = useState<{ message: string; code: string } | null>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -297,6 +335,121 @@ export default function App() {
     setIsSearchOpen(false);
   };
 
+  const detectGpsLocation = useCallback(async () => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setGpsError('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setGpsLoading(true);
+    setGpsError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setUserCoords({ lat, lng });
+
+        try {
+          const res = await fetch(`/api/stops?lat=${lat}&lng=${lng}&limit=6`);
+          let stopsList: NearbyStop[] = [];
+
+          if (res.ok) {
+            const json = await res.json();
+            if (Array.isArray(json.stops) && json.stops.length > 0) {
+              stopsList = json.stops;
+            }
+          }
+
+          if (!stopsList.length) {
+            stopsList = findNearestBusStops(lat, lng, 6, KNOWN_BUS_STOPS);
+          }
+
+          if (stopsList.length > 0) {
+            const nearest = stopsList[0];
+            setNearbyStops(stopsList);
+            selectStop(nearest.code, nearest);
+            const distNotice = nearest.distanceText ? ` (${nearest.distanceText} away)` : '';
+            setGpsToast({
+              message: `Auto-detected nearest bus stop: ${nearest.name} [${nearest.code}]${distNotice}`,
+              code: nearest.code
+            });
+            setTimeout(() => setGpsToast(null), 6000);
+          } else {
+            setGpsError('No Singapore bus stops found near your current location.');
+          }
+        } catch {
+          const localNearest = findNearestBusStops(lat, lng, 6, KNOWN_BUS_STOPS);
+          if (localNearest.length > 0) {
+            const nearest = localNearest[0];
+            setNearbyStops(localNearest);
+            selectStop(nearest.code, nearest);
+            setGpsToast({
+              message: `Auto-detected nearest bus stop: ${nearest.name} [${nearest.code}] (${nearest.distanceText} away)`,
+              code: nearest.code
+            });
+            setTimeout(() => setGpsToast(null), 6000);
+          } else {
+            setGpsError('Unable to match nearest bus stop for your coordinates.');
+          }
+        } finally {
+          setGpsLoading(false);
+        }
+      },
+      (err) => {
+        setGpsLoading(false);
+        if (err.code === 1) {
+          setGpsError('Location permission denied. Please allow location permissions in your browser to auto-detect nearest stop.');
+        } else if (err.code === 2) {
+          setGpsError('Location unavailable. GPS signal could not be acquired.');
+        } else if (err.code === 3) {
+          setGpsError('Location request timed out. Please try clicking GPS again.');
+        } else {
+          setGpsError('Failed to retrieve your current location.');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 30000
+      }
+    );
+  }, []);
+
+  const handleToggleSubsequent = async (svcNo: string) => {
+    if (expandedService === svcNo) {
+      setExpandedService(null);
+      setStopFilter('');
+      return;
+    }
+    setExpandedService(svcNo);
+    setStopFilter('');
+
+    const cacheKey = `${svcNo}-${currentStopCode}`;
+    if (!routeCache[cacheKey]) {
+      setRouteLoading(true);
+      try {
+        const res = await fetch(`/api/route?service=${encodeURIComponent(svcNo)}&currentStop=${encodeURIComponent(currentStopCode)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json && Array.isArray(json.stops) && json.stops.length > 0) {
+            setRouteCache(prev => ({
+              ...prev,
+              [cacheKey]: {
+                destination: json.destination || '',
+                stops: json.stops
+              }
+            }));
+          }
+        }
+      } catch {
+        // Fallback to local shared bus routes
+      } finally {
+        setRouteLoading(false);
+      }
+    }
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = searchInput.trim();
@@ -345,6 +498,16 @@ export default function App() {
 
           <div className="flex items-center gap-2 flex-wrap">
             <button
+              type="button"
+              onClick={detectGpsLocation}
+              disabled={gpsLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/40 text-xs font-semibold text-sky-300 transition-all shadow-sm"
+              title="Auto-detect nearest Singapore bus stop using GPS"
+            >
+              <LocateFixed className={`w-3.5 h-3.5 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} />
+              <span>{gpsLoading ? 'Detecting...' : 'GPS Nearest Stop'}</span>
+            </button>
+            <button
               onClick={() => loadData(currentStopCode)}
               disabled={loading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:border-slate-500 text-xs font-medium text-slate-300 transition-colors"
@@ -372,6 +535,119 @@ export default function App() {
             </a>
           </div>
         </header>
+
+        {/* GPS Location Tracker Banner */}
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-sky-950/40 border border-sky-500/30 shadow-md space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                <Compass className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                    GPS Location Tracker
+                  </h3>
+                  {userCoords && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                      GPS Active
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  {userCoords 
+                    ? `Current coordinates: ${userCoords.lat.toFixed(4)}, ${userCoords.lng.toFixed(4)}`
+                    : 'Auto-detect nearest bus stop based on your real-time GPS location.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={detectGpsLocation}
+              disabled={gpsLoading}
+              className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-semibold shadow-md transition-all shrink-0"
+            >
+              <LocateFixed className={`w-3.5 h-3.5 ${gpsLoading ? 'animate-spin' : ''}`} />
+              <span>{gpsLoading ? 'Acquiring GPS...' : 'Auto-Detect Nearest Stop'}</span>
+            </button>
+          </div>
+
+          {/* GPS Success Toast */}
+          {gpsToast && (
+            <div className="p-2.5 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>{gpsToast.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGpsToast(null)}
+                className="text-emerald-400 hover:text-white p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* GPS Error Alert */}
+          {gpsError && (
+            <div className="p-2.5 rounded-lg bg-amber-950/70 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>{gpsError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGpsError(null)}
+                className="text-amber-400 hover:text-white p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Nearby Bus Stops Carousel / Quick Selector */}
+          {nearbyStops.length > 0 && (
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span className="font-semibold text-sky-400 uppercase tracking-wider flex items-center gap-1">
+                  <LocateFixed className="w-3 h-3" />
+                  <span>Nearby Stops ({nearbyStops.length} within walking distance)</span>
+                </span>
+                <span className="text-[10px] text-slate-400">Click to switch arrival board</span>
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {nearbyStops.map((stop) => {
+                  const isSelected = currentStopCode === stop.code;
+                  return (
+                    <button
+                      key={stop.code}
+                      type="button"
+                      onClick={() => selectStop(stop.code, stop)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap flex items-center gap-2 border transition-all ${
+                        isSelected
+                          ? 'bg-sky-500/20 text-sky-200 border-sky-500/60 font-semibold shadow-sm'
+                          : 'bg-slate-950/80 text-slate-300 hover:bg-slate-800 hover:border-slate-700 border-slate-800'
+                      }`}
+                    >
+                      <span className="font-mono font-bold text-[11px] text-sky-400">
+                        {stop.code}
+                      </span>
+                      <span>{stop.name}</span>
+                      {stop.distanceText && (
+                        <span className="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-emerald-400 border border-slate-700 font-mono">
+                          {stop.distanceText}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Bus Stop Search Box with Autocomplete & Recommendations */}
         <div ref={searchContainerRef} className="relative z-30">
@@ -628,7 +904,17 @@ export default function App() {
             {activeBusData?.services && activeBusData.services.length > 0 ? (
               activeBusData.services.map((svc) => {
                 const isExpanded = expandedService === svc.serviceNo;
-                const subsequentStops = getSubsequentStops(svc.serviceNo, currentStopCode);
+                const cacheKey = `${svc.serviceNo}-${currentStopCode}`;
+                const cached = routeCache[cacheKey];
+                const allSubsequentStops: SubsequentStop[] = cached?.stops || getSubsequentStops(svc.serviceNo, currentStopCode);
+                const destinationName = cached?.destination || (KNOWN_ROUTES as Record<string, { destination?: string }>)[svc.serviceNo]?.destination || 'Terminus';
+                const filteredStops = stopFilter.trim()
+                  ? allSubsequentStops.filter((s) =>
+                      s.name.toLowerCase().includes(stopFilter.toLowerCase()) ||
+                      s.code.includes(stopFilter) ||
+                      s.road.toLowerCase().includes(stopFilter.toLowerCase())
+                    )
+                  : allSubsequentStops;
 
                 return (
                   <div key={svc.serviceNo} className="divide-y divide-slate-800/40">
@@ -644,11 +930,16 @@ export default function App() {
                             )}
                             <button
                               type="button"
-                              onClick={() => setExpandedService(isExpanded ? null : svc.serviceNo)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[11px] text-sky-400 font-medium transition-colors border border-slate-700/60"
-                              title="Toggle subsequent stops along the route"
+                              onClick={() => handleToggleSubsequent(svc.serviceNo)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all border ${
+                                isExpanded 
+                                  ? 'bg-sky-600 text-white border-sky-500 shadow-sm' 
+                                  : 'bg-slate-800/90 hover:bg-slate-700 text-sky-400 border-slate-700/60'
+                              }`}
+                              title="View all subsequent stops along the route"
                             >
-                              <span>Subsequent Stops</span>
+                              <Navigation className="w-3 h-3" />
+                              <span>{isExpanded ? 'Hide Stops' : 'All Subsequent Stops'}</span>
                               {isExpanded ? (
                                 <ChevronUp className="w-3 h-3" />
                               ) : (
@@ -708,41 +999,130 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Subsequent Stops Dropdown */}
+                    {/* Subsequent Stops Container */}
                     {isExpanded && (
-                      <div className="px-5 py-3.5 bg-slate-950/90 border-t border-slate-800/70 space-y-2.5">
-                        <div className="flex items-center justify-between text-xs flex-wrap gap-2">
-                          <span className="font-semibold text-sky-300 flex items-center gap-1.5">
-                            <Navigation className="w-3.5 h-3.5" />
-                            <span>Subsequent stops for Bus {svc.serviceNo} after {stopInfo.name}:</span>
-                          </span>
-                          <span className="text-[11px] text-slate-400">Click any stop to switch arrival board</span>
+                      <div className="px-5 py-4 bg-slate-950/95 border-t border-slate-800/80 space-y-3">
+                        {/* Header bar with count, terminus and filter */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800/60">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sky-300 text-xs flex items-center gap-1.5">
+                                <Navigation className="w-3.5 h-3.5 text-sky-400" />
+                                <span>Bus {svc.serviceNo} Route</span>
+                              </span>
+                              <span className="text-slate-400 text-xs">→</span>
+                              <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
+                                <Flag className="w-3 h-3" />
+                                <span>Dest: {destinationName}</span>
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 font-mono border border-sky-500/30">
+                                {allSubsequentStops.length} subsequent stops
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              Showing all remaining stops after {stopInfo.name}. Click any stop to view its arrivals.
+                            </p>
+                          </div>
+
+                          {/* Filter inside dropdown */}
+                          <div className="relative min-w-[200px] max-w-xs">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={stopFilter}
+                              onChange={(e) => setStopFilter(e.target.value)}
+                              placeholder="Filter route stops..."
+                              className="w-full pl-8 pr-7 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                            />
+                            {stopFilter && (
+                              <button
+                                type="button"
+                                onClick={() => setStopFilter('')}
+                                className="absolute right-2 top-2 text-slate-400 hover:text-white"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                          {subsequentStops.map((stop: { sequence: number; code: string; name: string; road: string }) => (
+                        {routeLoading && (
+                          <div className="text-xs text-sky-400 py-2 flex items-center gap-2">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Loading route details...</span>
+                          </div>
+                        )}
+
+                        {/* Scrollable list of ALL subsequent stops */}
+                        {filteredStops.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[30rem] overflow-y-auto pr-1">
+                            {filteredStops.map((stop) => {
+                              const isTerminus = stop.isTerminus || stop.sequence === allSubsequentStops.length;
+                              return (
+                                <button
+                                  key={`${stop.code}-${stop.sequence}`}
+                                  type="button"
+                                  onClick={() => selectStop(stop.code, stop)}
+                                  className={`flex items-center justify-between p-2.5 rounded-lg border text-left transition-all group ${
+                                    isTerminus
+                                      ? 'bg-emerald-950/30 hover:bg-emerald-900/40 border-emerald-500/40'
+                                      : 'bg-slate-900/90 hover:bg-slate-800 hover:border-sky-500/40 border-slate-800'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 overflow-hidden">
+                                    <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 border ${
+                                      isTerminus
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-sky-500/10 text-sky-300 border-sky-500/20'
+                                    }`}>
+                                      +{stop.sequence}
+                                    </span>
+                                    <div className="truncate">
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        <p className="text-xs font-semibold text-white group-hover:text-sky-300 transition-colors truncate">
+                                          {stop.name}
+                                        </p>
+                                        {isTerminus && (
+                                          <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium shrink-0">
+                                            Terminus
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-slate-400 truncate">
+                                        Stop {stop.code} • {stop.road}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <ArrowRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-sky-400 shrink-0 ml-2 transition-colors" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center text-xs text-slate-400">
+                            No stops found matching &quot;{stopFilter}&quot;.
                             <button
-                              key={stop.code}
                               type="button"
-                              onClick={() => selectStop(stop.code, stop)}
-                              className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 hover:border-sky-500/40 border border-slate-800 text-left transition-all group"
+                              onClick={() => setStopFilter('')}
+                              className="ml-2 text-sky-400 underline hover:text-sky-300"
                             >
-                              <div className="flex items-center gap-2.5 overflow-hidden">
-                                <span className="w-6 h-6 rounded-full bg-sky-500/10 text-sky-300 text-[10px] font-bold flex items-center justify-center shrink-0 border border-sky-500/20">
-                                  +{stop.sequence}
-                                </span>
-                                <div className="truncate">
-                                  <p className="text-xs font-semibold text-white group-hover:text-sky-300 transition-colors truncate">
-                                    {stop.name}
-                                  </p>
-                                  <p className="text-[11px] text-slate-400 truncate">
-                                    Stop {stop.code} • {stop.road}
-                                  </p>
-                                </div>
-                              </div>
-                              <ArrowRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-sky-400 shrink-0 ml-2 transition-colors" />
+                              Reset filter
                             </button>
-                          ))}
+                          </div>
+                        )}
+
+                        {/* Footer action bar */}
+                        <div className="pt-2 border-t border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400">
+                          <span>
+                            Showing all {allSubsequentStops.length} stops from current stop to {destinationName}. Click any stop to view arrivals.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedService(null)}
+                            className="text-sky-400 hover:text-sky-300 underline font-medium self-start sm:self-auto"
+                          >
+                            Close route
+                          </button>
                         </div>
                       </div>
                     )}
